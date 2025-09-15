@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Transactions - DAM</title>
+  <style>
+    :root{ --orange:#ff6600; --bg1:#fff5e6; --bg2:#ff9933 }
+    body{ margin:0; font-family:Arial, Helvetica, sans-serif; background:linear-gradient(135deg,var(--bg1),var(--bg2)); padding:20px }
+    h1{ margin:0 0 12px; font-size:28px }
+    .controls{ display:flex; gap:12px; align-items:center; margin-bottom:14px; flex-wrap:wrap }
+    select, input, button{ padding:10px; border-radius:8px; border:1px solid #ccc; font-size:14px }
+    .btn{ background:var(--orange); color:#fff; border:none; padding:10px 14px; border-radius:8px; cursor:pointer }
+    .panel{ display:flex; gap:18px; flex-wrap:wrap }
+    .card{ background:rgba(255,255,255,.95); padding:14px; border-radius:12px; min-width:300px }
+    #reader{ width:340px; height:260px; background:#111; border-radius:10px; overflow:hidden }
+    table{ width:100%; border-collapse:collapse; margin-top:8px }
+    th,td{ padding:8px; border-bottom:1px solid #ddd; text-align:left; font-size:14px }
+    th{ background:var(--orange); color:#fff }
+    .small{ font-size:13px; color:#333 }
+    .message{ margin-top:10px; color:green; font-weight:700 }
+    .hidden{ display:none }
+  </style>
+</head>
+<body>
+  <h1>Transactions</h1>
+
+  <div class="controls">
+    <label>Action:
+      <select id="actionSelect">
+        <option value="borrow">Borrow Book</option>
+        <option value="return">Return Book</option>
+        <option value="lost">Lost Book</option>
+      </select>
+    </label>
+
+    <button id="startScan" class="btn">Start Scanner</button>
+    <button id="stopScan" class="btn hidden" id="stopBtn">Stop Scanner</button>
+
+    <label class="small">Or enter Student No:
+      <input id="manualStudent" placeholder="Student Number (optional)" />
+    </label>
+
+    <div style="margin-left:auto">
+      <a href="index.html">Home</a> &nbsp; <a href="books.html">Books</a> &nbsp; <a href="report.html">Report</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card" style="min-width:360px">
+      <h3>Scan Student QR</h3>
+      <div id="reader"></div>
+      <div id="studentInfo" class="small" style="margin-top:10px">No student scanned</div>
+    </div>
+
+    <div class="card" style="flex:1; min-width:360px">
+      <h3>Operation: <span id="opLabel">Borrow Book</span></h3>
+
+      <!-- Borrow Pane -->
+      <div id="borrowPane">
+        <p class="small">Choose an available book to borrow</p>
+        <table id="borrowTable"><thead><tr><th>Title</th><th>Author</th><th></th></tr></thead><tbody></tbody></table>
+
+        <div style="margin-top:10px">
+          <label>Due date: <input id="dueDate" type="date" /></label>
+        </div>
+        <div style="margin-top:10px">
+          <button id="confirmBorrow" class="btn">Confirm Borrow</button>
+        </div>
+      </div>
+
+      <!-- Return Pane -->
+      <div id="returnPane" class="hidden">
+        <p class="small">Select one of this student's borrowed books to return</p>
+        <table id="returnTable"><thead><tr><th>Title</th><th>Borrowed</th><th></th></tr></thead><tbody></tbody></table>
+        <div style="margin-top:10px">
+          <button id="confirmReturn" class="btn">Confirm Return</button>
+        </div>
+      </div>
+
+      <!-- Lost Pane -->
+      <div id="lostPane" class="hidden">
+        <p class="small">Select the book to mark as lost (student must be scanned or entered)</p>
+        <table id="lostTable"><thead><tr><th>Title</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+        <div style="margin-top:10px">
+          <button id="confirmLost" class="btn">Confirm Lost</button>
+        </div>
+      </div>
+
+      <div id="message" class="message"></div>
+    </div>
+  </div>
+
+  <!-- html5-qrcode scanner -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.7/minified/html5-qrcode.min.js"></script>
+  <script>
+    /********************
+     * Storage helpers
+     ********************/
+    function readRaw(key){ return localStorage.getItem(key) }
+    function readStorage(key){
+      try { return JSON.parse(localStorage.getItem(key) || '[]') }
+      catch(e){ return [] }
+    }
+    function writeStorage(key, value){ localStorage.setItem(key, JSON.stringify(value)) }
+
+    // ensure keys exist
+    if(!readRaw('books')) writeStorage('books', [])
+    if(!readRaw('transactions')) writeStorage('transactions', [])
+    if(!readRaw('students')) {
+      // keep empty array by default
+      writeStorage('students', [])
+    }
+
+    /********************
+     * Data migration:
+     * If `students` is an object mapping (older approach) with borrowed lists,
+     * convert borrowed entries into transactions so return view works.
+     ********************/
+    function migrateStudentBorrowedToTransactions(){
+      const raw = readRaw('students')
+      if(!raw) return
+      try {
+        const parsed = JSON.parse(raw)
+        // if it's an object (not array) -> migrate
+        if(parsed && !Array.isArray(parsed) && typeof parsed === 'object'){
+          const books = readStorage('books')
+          const transactions = readStorage('transactions')
+          for(const studentNumber in parsed){
+            const sObj = parsed[studentNumber]
+            const borrowedList = Array.isArray(sObj.borrowed) ? sObj.borrowed : []
+            for(const bItem of borrowedList){
+              // bItem may be {title, due} or {title, dueDate}
+              const title = bItem.title || bItem.book || ''
+              if(!title) continue
+              const book = books.find(bb => bb.title === title) || null
+              if(book){
+                // create borrow tx if not already present
+                const exists = transactions.some(t => t.type==='borrow' && t.bookId === book.id && t.studentNumber === studentNumber && !t.returnedDate)
+                if(!exists){
+                  const tx = {
+                    id: 'tx_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+                    type: 'borrow',
+                    bookId: book.id,
+                    studentNumber: studentNumber,
+                    date: new Date().toISOString(),
+                    dueDate: bItem.due ? new Date(bItem.due).toISOString() : (bItem.dueDate ? new Date(bItem.dueDate).toISOString() : null),
+                    returnedDate: null
+                  }
+                  transactions.push(tx)
+                  // set book status borrowed
+                  if(book.status !== 'Borrowed') book.status = 'Borrowed'
+                }
+              }
+            }
+          }
+          // write back migrated transactions and books
+          writeStorage('transactions', transactions)
+          writeStorage('books', books)
+          // leave `students` structure intact (to not lose other fields), but it's okay to keep old format
+        }
+      } catch(e){
+        // ignore parse errors
+      }
+    }
+
+    // run migration once at load
+    migrateStudentBorrowedToTransactions()
+
+    /********************
+     * Scanner + UI state
+     ********************/
+    const actionSelect = document.getElementById('actionSelect')
+    const opLabel = document.getElementById('opLabel')
+    const startScanBtn = document.getElementById('startScan')
+    const stopScanBtn = document.getElementById('stopScan')
+    const readerDiv = document.getElementById('reader')
+    const studentInfoDiv = document.getElementById('studentInfo')
+    const manualStudentInput = document.getElementById('manualStudent')
+    const messageDiv = document.getElementById('message')
+
+    const borrowPane = document.getElementById('borrowPane')
+    const returnPane = document.getElementById('returnPane')
+    const lostPane = document.getElementById('lostPane')
+
+    let html5Scanner = null
+    let currentStudent = null
+    let selectedBookId = null
+    let selectedReturnTxnId = null
+    let selectedLostBookId = null
+
+    // expose for buttons
+    window.selectBook = (bookId) => {
+      selectedBookId = bookId
+      messageDiv.textContent = 'Selected book: ' + bookId
+    }
+    window.selectReturn = (txId) => {
+      selectedReturnTxnId = txId
+      messageDiv.textContent = 'Selected borrow transaction: ' + txId
+    }
+    window.selectLost = (bookId) => {
+      selectedLostBookId = bookId
+      messageDiv.textContent = 'Selected book to mark as lost: ' + bookId
+    }
+
+    function switchPane(){
+      const action = actionSelect.value
+      opLabel.textContent = action === 'borrow' ? 'Borrow Book' : action === 'return' ? 'Return Book' : 'Lost Book'
+      borrowPane.classList.toggle('hidden', action !== 'borrow')
+      returnPane.classList.toggle('hidden', action !== 'return')
+      lostPane.classList.toggle('hidden', action !== 'lost')
+      messageDiv.textContent = ''
+      selectedBookId = selectedReturnTxnId = selectedLostBookId = null
+      renderAll()
+    }
+    actionSelect.addEventListener('change', switchPane)
+
+    // start scanner
+    startScanBtn.addEventListener('click', async () => {
+      startScanBtn.classList.add('hidden'); stopScanBtn.classList.remove('hidden')
+      try {
+        html5Scanner = new Html5Qrcode("reader")
+        await html5Scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, qrSuccess)
+      } catch(err) {
+        alert('Camera start failed: ' + err)
+        startScanBtn.classList.remove('hidden'); stopScanBtn.classList.add('hidden')
+      }
+    })
+
+    stopScanBtn.addEventListener('click', async () => {
+      if(html5Scanner){
+        await html5Scanner.stop()
+        html5Scanner.clear()
+        html5Scanner = null
+      }
+      startScanBtn.classList.remove('hidden'); stopScanBtn.classList.add('hidden')
+    })
+
+    // QR success callback
+    function qrSuccess(decodedText, decodedResult){
+      // Expect JSON like { "studentNumber":"..." }
+      try {
+        const obj = JSON.parse(decodedText)
+        if(obj.studentNumber){
+          const s = findStudentByNumber(obj.studentNumber)
+          if(!s){
+            studentInfoDiv.innerHTML = '<b>Student not found</b> — scanned: ' + obj.studentNumber
+            currentStudent = null
+            renderAll()
+            return
+          }
+          currentStudent = s
+          studentInfoDiv.innerHTML = `<b>${s.studentName || s.studentNumber}</b><div>Student No: ${s.studentNumber}</div><div>Course: ${s.course || ''}</div>`
+          // also set manual input for convenience
+          manualStudentInput.value = s.studentNumber
+          renderAll()
+        } else {
+          studentInfoDiv.innerHTML = '<b>Invalid QR format</b>'
+        }
+      } catch (e) {
+        studentInfoDiv.innerHTML = '<b>Invalid QR content</b>'
+      }
+    }
+
+    // find student in either array or object-mapping format
+    function findStudentByNumber(studentNumber){
+      const raw = readRaw('students')
+      if(!raw) return null
+      try {
+        const parsed = JSON.parse(raw)
+        if(Array.isArray(parsed)){
+          return parsed.find(s => s.studentNumber === studentNumber || s.number === studentNumber) || null
+        } else if(typeof parsed === 'object'){
+          // mapping format: keys are studentNumber
+          if(parsed[studentNumber]) {
+            const sObj = parsed[studentNumber]
+            // convert to common shape
+            return {
+              studentNumber: studentNumber,
+              studentName: sObj.studentName || sObj.name || sObj.fullname || '',
+              course: sObj.course || '',
+              department: sObj.department || '',
+              contact: sObj.contact || ''
+            }
+          }
+        }
+      } catch(e){ }
+      return null
+    }
+
+    /********************
+     * Rendering lists
+     ********************/
+    function renderAll(){
+      const books = readStorage('books')
+      const transactions = readStorage('transactions')
+
+      // BORROW table: available books
+      const borrowTbody = document.querySelector('#borrowTable tbody'); borrowTbody.innerHTML = ''
+      const available = books.filter(b => (b.status || 'Available') === 'Available')
+      if(available.length === 0) borrowTbody.innerHTML = '<tr><td colspan="3">No available books</td></tr>'
+      else {
+        available.forEach(b => {
+          const tr = document.createElement('tr')
+          tr.innerHTML = `<td>${escapeHtml(b.title)}</td><td>${escapeHtml(b.author||'')}</td><td><button onclick="selectBook('${b.id}')">Select</button></td>`
+          borrowTbody.appendChild(tr)
+        })
+      }
+
+      // RETURN table: borrowed by currentStudent & not returned
+      const returnTbody = document.querySelector('#returnTable tbody'); returnTbody.innerHTML = ''
+      if(!getStudentNumberInput()){
+        returnTbody.innerHTML = '<tr><td colspan="3">Scan or enter student number</td></tr>'
+      } else {
+        const stuNo = getStudentNumberInput()
+        // transactions-based borrowed list
+        const studentBorrows = transactions.filter(t => t.type === 'borrow' && t.studentNumber === stuNo && !t.returnedDate)
+        if(studentBorrows.length === 0){
+          returnTbody.innerHTML = '<tr><td colspan="3">No borrowed books for this student</td></tr>'
+        } else {
+          studentBorrows.forEach(tx => {
+            const book = books.find(b => b.id === tx.bookId) || { title: 'Unknown' }
+            const tr = document.createElement('tr')
+            tr.innerHTML = `<td>${escapeHtml(book.title)}</td><td>${new Date(tx.date).toLocaleDateString()}</td><td><button onclick="selectReturn('${tx.id}')">Select</button></td>`
+            returnTbody.appendChild(tr)
+          })
+        }
+      }
+
+      // LOST table: if student scanned/entered, show that student's active borrowed books to mark as lost
+      const lostTbody = document.querySelector('#lostTable tbody'); lostTbody.innerHTML = ''
+      if(!getStudentNumberInput()){
+        lostTbody.innerHTML = '<tr><td colspan="3">Scan or enter student number</td></tr>'
+      } else {
+        const stuNo = getStudentNumberInput()
+        const studentBorrows = transactions.filter(t => t.type === 'borrow' && t.studentNumber === stuNo && !t.returnedDate)
+        if(studentBorrows.length === 0){
+          lostTbody.innerHTML = '<tr><td colspan="3">No borrowed books to mark lost</td></tr>'
+        } else {
+          studentBorrows.forEach(tx => {
+            const book = books.find(b => b.id === tx.bookId) || { title:'Unknown', status: 'Unknown' }
+            const tr = document.createElement('tr')
+            tr.innerHTML = `<td>${escapeHtml(book.title)}</td><td>${escapeHtml(book.status||'')}</td><td><button onclick="selectLost('${book.id}')">Select</button></td>`
+            lostTbody.appendChild(tr)
+          })
+        }
+      }
+
+      // update message area and ensure panes are in sync
+      messageDiv.textContent = ''
+      selectedBookId = selectedReturnTxnId = selectedLostBookId = null
+    }
+
+    // small util: escape HTML to prevent injection from titles etc
+    function escapeHtml(str){
+      if(!str) return ''
+      return String(str).replace(/[&<>"'`=/]/g, function(s){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;','/':'&#x2F;','=':'&#61;'})[s] })
+    }
+
+    function getStudentNumberInput(){
+      // priority: manual input if present, else scanned currentStudent
+      const manual = (document.getElementById('manualStudent').value || '').trim()
+      if(manual) return manual
+      if(currentStudent && currentStudent.studentNumber) return currentStudent.studentNumber
+      return null
+    }
+
+    /********************
+     * Actions: borrow / return / lost
+     ********************/
+    document.getElementById('confirmBorrow').addEventListener('click', () => {
+      const stuNo = getStudentNumberInput()
+      const dueDateVal = document.getElementById('dueDate').value
+      if(!stuNo){ alert('Scan or enter student number first'); return }
+      if(!selectedBookId){ alert('Select a book to borrow'); return }
+      if(!dueDateVal){ alert('Choose a due date'); return }
+
+      const books = readStorage('books')
+      const transactions = readStorage('transactions')
+
+      const bIdx = books.findIndex(b => b.id === selectedBookId)
+      if(bIdx === -1){ alert('Selected book not found'); renderAll(); return }
+      if((books[bIdx].status || 'Available') !== 'Available'){ alert('Book is not available'); renderAll(); return }
+
+      books[bIdx].status = 'Borrowed'
+      writeStorage('books', books)
+
+      const tx = {
+        id: 'tx_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+        type: 'borrow',
+        bookId: selectedBookId,
+        studentNumber: stuNo,
+        date: new Date().toISOString(),
+        dueDate: new Date(dueDateVal).toISOString(),
+        returnedDate: null
+      }
+      transactions.push(tx)
+      writeStorage('transactions', transactions)
+
+      messageDiv.textContent = 'Borrow confirmed'
+      // clear selection + refresh lists
+      selectedBookId = null
+      renderAll()
+    })
+
+    document.getElementById('confirmReturn').addEventListener('click', () => {
+      const stuNo = getStudentNumberInput()
+      if(!stuNo){ alert('Scan or enter student number first'); return }
+      if(!selectedReturnTxnId){ alert('Select a borrow transaction to return'); return }
+
+      const transactions = readStorage('transactions')
+      const books = readStorage('books')
+      const txIdx = transactions.findIndex(t => t.id === selectedReturnTxnId)
+      if(txIdx === -1){ alert('Transaction not found'); return }
+      const tx = transactions[txIdx]
+      if(tx.returnedDate){ alert('Transaction already returned'); return }
+
+      // mark returned
+      tx.returnedDate = new Date().toISOString()
+      transactions[txIdx] = tx
+      writeStorage('transactions', transactions)
+
+      // update book status
+      const bIdx = books.findIndex(b => b.id === tx.bookId)
+      if(bIdx !== -1){
+        books[bIdx].status = 'Available'
+        writeStorage('books', books)
+      }
+
+      messageDiv.textContent = 'Return processed'
+      selectedReturnTxnId = null
+      renderAll()
+    })
+
+    document.getElementById('confirmLost').addEventListener('click', () => {
+      const stuNo = getStudentNumberInput()
+      if(!stuNo){ alert('Scan or enter student number first'); return }
+      if(!selectedLostBookId){ alert('Select a book to mark lost'); return }
+
+      if(!confirm('Mark selected book as LOST?')) return
+
+      const books = readStorage('books')
+      const transactions = readStorage('transactions')
+
+      const bIdx = books.findIndex(b => b.id === selectedLostBookId)
+      if(bIdx === -1){ alert('Book not found'); return }
+
+      books[bIdx].status = 'Lost'
+      writeStorage('books', books)
+
+      // create lost transaction
+      const tx = {
+        id: 'tx_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+        type: 'lost',
+        bookId: selectedLostBookId,
+        studentNumber: stuNo,
+        date: new Date().toISOString(),
+        note: 'Marked lost'
+      }
+      transactions.push(tx)
+
+      // Also, if there was an active borrow transaction for this book by this student, mark returnedDate
+      const borrowIdx = transactions.findIndex(t => t.type==='borrow' && t.bookId === selectedLostBookId && t.studentNumber === stuNo && !t.returnedDate)
+      if(borrowIdx !== -1){
+        transactions[borrowIdx].returnedDate = new Date().toISOString()
+      }
+
+      writeStorage('transactions', transactions)
+
+      messageDiv.textContent = 'Book marked LOST. Redirecting to report...'
+      selectedLostBookId = null
+      renderAll()
+      setTimeout(()=> location.href = 'report.html', 900)
+    })
+
+    // re-render when manual student input changes
+    manualStudentInput.addEventListener('input', () => {
+      // clear scanned student but keep manual
+      if(!manualStudentInput.value) { currentStudent = null; studentInfoDiv.innerHTML = 'No student scanned' }
+      renderAll()
+    })
+
+    // initial setup
+    switchPane()
+    renderAll()
+  </script>
+</body>
+</html>

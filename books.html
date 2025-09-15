@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Books Management</title>
+  <style>
+    :root{ --orange:#ff6600; --bg1:#fff5e6; --bg2:#ff9933 }
+    body{ margin:0; font-family:Arial, Helvetica, sans-serif; background:linear-gradient(135deg,var(--bg1),var(--bg2)); padding:24px }
+    .top{ display:flex; align-items:center; justify-content:space-between; gap:12px }
+    h1{ margin:0; font-size:28px }
+    .form{ background:rgba(255,165,0,.12); padding:16px; border-radius:12px; width:360px; box-shadow:0 8px 20px rgba(0,0,0,.12) }
+    .form input, .form select{ width:100%; padding:10px; margin:8px 0; border-radius:8px; border:1px solid #ccc }
+    .form button{ background:var(--orange); color:#fff; padding:10px; border:none; border-radius:8px; cursor:pointer; font-weight:700 }
+    .list{ margin-top:18px; background:rgba(255,255,255,.9); padding:12px; border-radius:12px }
+    table{ width:100%; border-collapse:collapse }
+    th,td{ padding:10px; border-bottom:1px solid #ddd; text-align:left }
+    th{ background:var(--orange); color:#fff }
+    .actions button{ margin-right:6px; padding:6px 8px; border-radius:6px; border:none; cursor:pointer }
+    .actions .del{ background:#c0392b; color:#fff }
+    .actions .edit{ background:#3498db; color:#fff }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1>Books</h1>
+    <div><a href="index.html">Home</a> &nbsp; <a href="transactions.html">Transactions</a></div>
+  </div>
+
+  <div style="display:flex; gap:22px; margin-top:16px; flex-wrap:wrap">
+    <div class="form">
+      <h3>Add / Edit Book</h3>
+      <input id="bookId" placeholder="(auto id) -- leave empty for new" readonly style="display:none">
+      <input id="title" placeholder="Title">
+      <input id="author" placeholder="Author">
+      <input id="publisher" placeholder="Publisher">
+      <input id="year" placeholder="Year">
+      <select id="status">
+        <option value="Available">Available</option>
+        <option value="Borrowed">Borrowed</option>
+        <option value="Lost">Lost</option>
+      </select>
+      <button id="saveBtn">Save Book</button>
+    </div>
+
+    <div style="flex:1; min-width:420px">
+      <div class="list">
+        <h3>Book List</h3>
+        <table id="booksTable">
+          <thead><tr><th>Title</th><th>Author</th><th>Year</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function readStorage(k){ return JSON.parse(localStorage.getItem(k)||'[]') }
+    function writeStorage(k,v){ localStorage.setItem(k, JSON.stringify(v)) }
+
+    const titleInp = document.getElementById('title'), authorInp=document.getElementById('author'),
+          pubInp=document.getElementById('publisher'), yearInp=document.getElementById('year'),
+          statusSel=document.getElementById('status'), saveBtn=document.getElementById('saveBtn')
+
+    function renderBooks(){
+      const books = readStorage('books')
+      const tbody = document.querySelector('#booksTable tbody'); tbody.innerHTML = ''
+      if(books.length === 0) tbody.innerHTML = '<tr><td colspan="5">No books added</td></tr>'
+      books.forEach(b=>{
+        const tr = document.createElement('tr')
+tr.innerHTML = `<td>${b.title}</td><td>${b.author}</td><td>${b.year||''}</td><td>${b.status}</td>
+  <td class="actions">
+    <button class="edit" onclick="editBook('${b.id}')">Edit</button>
+    <button class="del" onclick="deleteBook('${b.id}')">Delete</button>
+    <button class="history" onclick="showBookHistory('${b.id}')">History</button>
+  </td>`
+
+        tbody.appendChild(tr)
+      })
+    }
+
+    function generateId(){ return 'bk_' + Date.now().toString(36).slice(2,10) }
+
+    saveBtn.addEventListener('click', function(e){
+      const books = readStorage('books')
+      const editingId = document.getElementById('bookId').value
+      if(!titleInp.value.trim()){ alert('Title required'); return }
+      if(editingId){
+        // update
+        const idx = books.findIndex(x=>x.id===editingId)
+        if(idx>=0){
+          books[idx] = { ...books[idx], title:titleInp.value.trim(), author: authorInp.value.trim(), publisher: pubInp.value.trim(), year:yearInp.value.trim(), status: statusSel.value }
+        }
+      } else {
+        const newBook = { id: generateId(), title:titleInp.value.trim(), author:authorInp.value.trim(), publisher:pubInp.value.trim(), year:yearInp.value.trim(), status: statusSel.value }
+        books.push(newBook)
+      }
+      writeStorage('books', books)
+      clearForm()
+      renderBooks()
+    })
+
+    function editBook(id){
+      const books = readStorage('books'); const b = books.find(x=>x.id===id)
+      if(!b) return
+      document.getElementById('bookId').value = b.id
+      titleInp.value = b.title; authorInp.value = b.author; pubInp.value = b.publisher; yearInp.value = b.year; statusSel.value = b.status
+      window.scrollTo({ top:0, behavior:'smooth' })
+    }
+
+    function deleteBook(id){
+      if(!confirm('Delete this book?')) return
+      let books = readStorage('books'); books = books.filter(x=>x.id!==id); writeStorage('books', books)
+      renderBooks()
+    }
+
+    function clearForm(){ document.getElementById('bookId').value=''; titleInp.value=''; authorInp.value=''; pubInp.value=''; yearInp.value=''; statusSel.value='Available' }
+
+    // initial
+    renderBooks()
+
+    function showBookHistory(bookId){
+  const students = readStorage('students')
+  const transactions = readStorage('transactions')
+  const book = readStorage('books').find(b => b.id===bookId) || {title:'Unknown'}
+
+  const tbody = document.getElementById('bookHistoryBody')
+  tbody.innerHTML = ''
+
+  const txs = transactions.filter(t => t.bookId === bookId).sort((a,b)=> new Date(b.date)-new Date(a.date))
+  if(txs.length === 0){
+    tbody.innerHTML = `<tr><td colspan="3">No history for this book</td></tr>`
+  } else {
+    txs.forEach(tx=>{
+      const stu = students.find(s => s.studentNumber === tx.studentNumber) || {studentName:'Unknown', studentNumber:tx.studentNumber}
+      let action = tx.type==='borrow' ? 'Borrowed' : tx.type==='return' ? 'Returned' : 'Lost'
+      const tr = document.createElement('tr')
+      tr.innerHTML = `<td>${stu.studentName} (${stu.studentNumber})</td><td>${action}</td><td>${new Date(tx.date).toLocaleString()}</td>`
+      tbody.appendChild(tr)
+    })
+  }
+  document.getElementById('bookHistoryModal').style.display = 'flex'
+}
+
+function closeBookHistory(){
+  document.getElementById('bookHistoryModal').style.display = 'none'
+}
+
+  </script>
+  <!-- Book History Modal -->
+<div id="bookHistoryModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+    background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center;">
+  <div style="background:#fff; padding:20px; border-radius:12px; max-width:700px; width:90%; max-height:80%; overflow:auto;">
+    <h2>Book History</h2>
+    <table style="width:100%; border-collapse:collapse;">
+      <thead><tr><th>Student</th><th>Action</th><th>Date</th></tr></thead>
+      <tbody id="bookHistoryBody"></tbody>
+    </table>
+    <div style="text-align:right; margin-top:10px;">
+      <button onclick="closeBookHistory()">Close</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

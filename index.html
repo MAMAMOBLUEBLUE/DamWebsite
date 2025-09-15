@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DAM - Home (with Students submenu)</title>
+  <style>
+    :root{ --orange:#ff6600; --bg1:#fff5e6; --bg2:#ff9933 }
+    body{ margin:0; font-family:Arial, Helvetica, sans-serif; min-height:100vh; background:linear-gradient(135deg,var(--bg1),var(--bg2)); }
+    .menu-toggle{ position:fixed; left:14px; top:14px; z-index:1002; background:var(--orange); color:#fff; border:none; padding:10px 12px; border-radius:8px; cursor:pointer }
+    .side-menu{ position:fixed; left:-280px; top:0; width:280px; height:100%; background:#111; color:#fff; padding-top:60px; transition:left .28s; box-shadow:6px 0 20px rgba(0,0,0,.25); z-index:1001 }
+    .side-menu.open{ left:0 }
+    .side-menu .item{ padding:8px 18px; border-bottom:1px solid rgba(255,255,255,.03) }
+    .side-menu a{ color:#fff; text-decoration:none; display:block; font-size:16px; padding:10px 4px }
+    .side-menu a:hover{ background:var(--orange); color:#111; border-radius:6px }
+    /* submenu */
+    .submenu { max-height:0; overflow:hidden; transition: max-height .22s ease; margin-left:8px }
+    .submenu.open { max-height:220px; }
+    .submenu a { font-size:14px; padding-left:18px; background:transparent }
+    main { padding:36px; max-width:1000px; margin:0 auto; }
+    h1 { color:#111; font-size:34px; margin-top:20px }
+    .notice { margin-top:12px; color:#333; font-weight:600 }
+  </style>
+</head>
+<body>
+
+  <button class="menu-toggle" onclick="toggleMenu()">☰ Menu</button>
+
+  <nav id="sideMenu" class="side-menu" aria-label="Main navigation">
+    <div style="position:absolute; right:20px; top:12px;">
+  <button onclick="logout()" style="background:#ff6600; color:#fff; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">Logout</button>
+</div>
+    <div style="position:absolute; right:12px; top:10px;">
+      <button style="background:transparent; border:none; color:#fff; font-size:26px; cursor:pointer" onclick="toggleMenu()">×</button>
+    </div>
+
+    <div class="item">
+      <!-- Students parent item toggles submenu -->
+      <a href="#" onclick="toggleSubmenu(event, 'studentsSub')">Students ▾</a>
+      <div id="studentsSub" class="submenu">
+        <!-- Links go to the students page with a hash so the students page opens the right tab -->
+        <a href="students.html#register">Register Student</a>
+        <a href="students.html#tracker">Student Tracker</a>
+      </div>
+    </div>
+
+    <div class="item"><a href="books.html">Books</a></div>
+    <div class="item"><a href="transactions.html">Transactions</a></div>
+    <div class="item"><a href="report.html">Report</a></div>
+  </nav>
+
+  <main>
+    <h1>Digital Access Management (DAM)</h1>
+
+    
+  </main>
+
+  <script>
+    function toggleMenu(){
+      document.getElementById('sideMenu').classList.toggle('open')
+    }
+
+    function toggleSubmenu(evt, id){
+      evt.preventDefault()
+      const el = document.getElementById(id)
+      if(!el) return
+      el.classList.toggle('open')
+    }
+
+    // Close side menu if user clicks outside (nice-to-have)
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('sideMenu')
+      const toggle = document.querySelector('.menu-toggle')
+      if(!menu.contains(e.target) && !toggle.contains(e.target)){
+        menu.classList.remove('open')
+      }
+    })
+    function logout(){
+  location.href = 'login.html'
+}
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Students - Register / Tracker</title>
+  <style>
+    body{ font-family:Arial, Helvetica, sans-serif; margin:20px; background:linear-gradient(135deg,#fff5e6,#ff9933) }
+    h1{ margin:0 0 12px }
+    nav{ margin-bottom:18px }
+    nav button{ padding:8px 12px; border-radius:8px; border:none; margin-right:8px; cursor:pointer; background:#fff }
+    nav button.active{ background:#ff6600; color:#fff }
+    .section{ display:none; background:rgba(255,255,255,0.95); padding:16px; border-radius:10px; max-width:920px }
+    .section.active{ display:block }
+    input{ display:block; margin:8px 0 12px; padding:8px; width:100%; max-width:360px; border-radius:6px; border:1px solid #ccc }
+    .btn{ background:#ff6600; color:#fff; padding:10px 12px; border:none; border-radius:8px; cursor:pointer }
+    table{ width:100%; border-collapse:collapse; margin-top:10px; background:#fff }
+    th, td{ padding:8px; border:1px solid #ddd; text-align:left }
+    th{ background:#ff6600; color:#fff }
+    .qr-canvas { margin-top:10px; }
+  </style>
+</head>
+<body>
+  <h1>Students</h1>
+  <nav>
+    <button id="btnRegister">Register Student</button>
+    <button id="btnTracker">Student Tracker</button>
+    <a href="index.html" style="margin-left:12px; text-decoration:none; padding:8px 10px; background:#fff; border-radius:8px; color:#111">Back Home</a>
+  </nav>
+
+<!-- Register -->
+<div id="registerSection" class="section">
+  <h2>Register / Edit Student</h2>
+  <form id="studentForm">
+    <input id="studentNumber" placeholder="Student Number" required>
+    <input id="studentName" placeholder="Student Name" required>
+    <input id="course" placeholder="Course" required>
+    <input id="department" placeholder="Department" required>
+    <input id="contact" placeholder="Contact" required>
+    <input id="password" type="password" placeholder="Password" required>
+    <button class="btn" type="submit">Register & Generate QR</button>
+  </form>
+
+  <!-- Profile Card -->
+  <div id="profileCard" style="display:none; margin-top:20px; background:#fff; padding:16px; border-radius:12px; display:flex; gap:20px; align-items:flex-start; max-width:720px;">
+    <div>
+      <canvas id="qrcodeCanvas"></canvas>
+      <div style="margin-top:10px; display:flex; gap:10px;">
+        <button class="btn" onclick="downloadQR()">Download QR</button>
+        <button class="btn" onclick="printProfile()">Print</button>
+      </div>
+    </div>
+    <div>
+      <h3>Student Details</h3>
+      <p id="profileDetails"></p>
+      <h3>Books History</h3>
+<table id="historyTable" style="border-collapse:collapse; width:100%; margin-top:6px;">
+  <thead><tr><th>Book</th><th>Action / Student</th><th>Date</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+  <!-- Tracker -->
+  <div id="trackerSection" class="section">
+    <h2>Student Tracker</h2>
+    <table>
+      <thead><tr><th>Student No</th><th>Name</th><th>Course</th><th>Department</th><th>Contact</th><th>Actions</th></tr></thead>
+      <tbody id="studentTable"></tbody>
+    </table>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script>
+  const btnRegister = document.getElementById('btnRegister')
+  const btnTracker = document.getElementById('btnTracker')
+  const registerSection = document.getElementById('registerSection')
+  const trackerSection = document.getElementById('trackerSection')
+  const form = document.getElementById('studentForm')
+  const qrcanvas = document.getElementById('qrcodeCanvas')
+  const submitBtn = form.querySelector('button')
+  let editingStudentNo = null   // track which student is being edited
+
+  // show sections
+  function showRegister(){ 
+    registerSection.classList.add('active'); trackerSection.classList.remove('active') 
+    btnRegister.classList.add('active'); btnTracker.classList.remove('active')
+  }
+  function showTracker(){ 
+    trackerSection.classList.add('active'); registerSection.classList.remove('active') 
+    btnTracker.classList.add('active'); btnRegister.classList.remove('active') 
+  }
+
+  btnRegister.addEventListener('click', () => { 
+    showRegister(); resetForm(); history.replaceState(null,'','students.html#register') 
+  })
+  btnTracker.addEventListener('click', () => { 
+    showTracker(); history.replaceState(null,'','students.html#tracker'); loadStudents() 
+  })
+
+  function handleHash(){
+    const h = (location.hash || '').toLowerCase()
+    if(h === '#tracker') { showTracker(); loadStudents() }
+    else { showRegister() }
+  }
+  window.addEventListener('hashchange', handleHash)
+
+  // reset form
+  function resetForm(){
+    form.reset()
+    editingStudentNo = null
+    submitBtn.textContent = "Register & Generate QR"
+  }
+
+  // registration / update logic
+  form.addEventListener('submit', (e) => {
+    e.preventDefault()
+    const student = {
+      studentNumber: document.getElementById('studentNumber').value.trim(),
+      studentName: document.getElementById('studentName').value.trim(),
+      course: document.getElementById('course').value.trim(),
+      department: document.getElementById('department').value.trim(),
+      contact: document.getElementById('contact').value.trim(),
+      password: document.getElementById('password').value
+    }
+    if(!student.studentNumber){ alert('Student Number required'); return }
+
+    let students = JSON.parse(localStorage.getItem('students') || '[]')
+    if(editingStudentNo){
+      // update existing
+      const idx = students.findIndex(s => s.studentNumber === editingStudentNo)
+      if(idx !== -1) students[idx] = student
+      alert('Student updated.')
+    } else {
+      // add new
+      const exists = students.find(s => s.studentNumber === student.studentNumber)
+      if(exists){ alert('Student already exists. Use edit instead.'); return }
+      students.push(student)
+      alert('Student registered.')
+    }
+    localStorage.setItem('students', JSON.stringify(students))
+
+    // generate QR
+ // show profile with QR + details + history
+showProfile(student)
+
+alert(editingStudentNo ? 'Student updated.' : 'Student registered.')
+
+// reset form fields but keep profile visible
+form.reset()
+editingStudentNo = null
+submitBtn.textContent = "Register & Generate QR"
+
+    loadStudents()
+  })
+
+  // tracker listing
+  function loadStudents(){
+    const tbody = document.getElementById('studentTable'); tbody.innerHTML = ''
+    const students = JSON.parse(localStorage.getItem('students') || '[]')
+    if(students.length === 0){
+      tbody.innerHTML = '<tr><td colspan="6">No students registered</td></tr>'
+      return
+    }
+    students.forEach(s => {
+      const tr = document.createElement('tr')
+      tr.innerHTML = `
+        <td>${escapeHtml(s.studentNumber)}</td>
+        <td>${escapeHtml(s.studentName||'')}</td>
+        <td>${escapeHtml(s.course||'')}</td>
+        <td>${escapeHtml(s.department||'')}</td>
+        <td>${escapeHtml(s.contact||'')}</td>
+        <td>
+          <button onclick="editStudent('${s.studentNumber}')">Edit</button>
+          <button onclick="deleteStudent('${s.studentNumber}')">Delete</button>
+        </td>`
+      tbody.appendChild(tr)
+    })
+  }
+
+// edit student
+window.editStudent = function(studentNumber){
+  const students = JSON.parse(localStorage.getItem('students') || '[]')
+  const s = students.find(x => x.studentNumber === studentNumber)
+  if(!s) return
+  showRegister()
+  document.getElementById('studentNumber').value = s.studentNumber
+  document.getElementById('studentName').value = s.studentName
+  document.getElementById('course').value = s.course
+  document.getElementById('department').value = s.department
+  document.getElementById('contact').value = s.contact
+  document.getElementById('password').value = s.password || ''
+  editingStudentNo = s.studentNumber
+  submitBtn.textContent = "Update Student"
+  showProfile(s)   // <-- NEW: show QR + details + history
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+
+  // delete student
+  window.deleteStudent = function(studentNumber){
+    if(!confirm('Delete student ' + studentNumber + '?')) return
+    let students = JSON.parse(localStorage.getItem('students') || '[]')
+    students = students.filter(s => s.studentNumber !== studentNumber)
+    localStorage.setItem('students', JSON.stringify(students))
+    loadStudents()
+  }
+
+  function escapeHtml(str){
+    if(!str) return ''
+    return String(str).replace(/[&<>"'`=/]/g, s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;','/':'&#x2F;','=':'&#61;'})[s])
+  }
+
+  // init
+  handleHash()
+
+  // after form submit success
+function showProfile(student){
+  document.getElementById('profileCard').style.display = 'flex'
+  document.getElementById('profileDetails').innerHTML = `
+    <b>Student No:</b> ${student.studentNumber}<br>
+    <b>Name:</b> ${student.studentName}<br>
+    <b>Course:</b> ${student.course}<br>
+    <b>Department:</b> ${student.department}<br>
+    <b>Contact:</b> ${student.contact}
+  `
+  // generate QR
+  const payload = JSON.stringify({ studentNumber: student.studentNumber })
+  QRCode.toCanvas(document.getElementById('qrcodeCanvas'), payload, { width:160 })
+
+  // render book history immediately
+  renderHistory(student.studentNumber)
+}
+
+// book history
+function renderHistory(studentNumber){
+  const tbody = document.querySelector('#historyTable tbody')
+  tbody.innerHTML = ''
+  const books = JSON.parse(localStorage.getItem('books') || '[]')
+  const txs = JSON.parse(localStorage.getItem('transactions') || '[]')
+    .filter(t => t.studentNumber === studentNumber)
+    .sort((a,b)=> new Date(b.date)-new Date(a.date))
+
+  if(txs.length === 0){
+    tbody.innerHTML = '<tr><td colspan="4">No history</td></tr>'
+    return
+  }
+
+  // get student info (for display)
+  const students = JSON.parse(localStorage.getItem('students') || '[]')
+  const stu = students.find(s => s.studentNumber === studentNumber) || { studentName:'Unknown', studentNumber }
+
+  txs.forEach(tx=>{
+    const book = books.find(b => b.id===tx.bookId) || {title:'Unknown'}
+    let action = ''
+    if(tx.type === 'borrow') action = 'Borrowed'
+    else if(tx.type === 'return') action = 'Returned'
+    else if(tx.type === 'lost') action = 'Lost'
+
+    const tr = document.createElement('tr')
+    tr.innerHTML = `
+      <td>${book.title}</td>
+      <td>${action} by ${stu.studentName} (${stu.studentNumber})</td>
+      <td>${new Date(tx.date).toLocaleString()}</td>`
+    tbody.appendChild(tr)
+  })
+}
+
+
+// download QR
+function downloadQR(){
+  const canvas = document.getElementById('qrcodeCanvas')
+  const link = document.createElement('a')
+  link.download = 'student_qr.png'
+  link.href = canvas.toDataURL()
+  link.click()
+}
+
+// print profile
+function printProfile(){
+  const profile = document.getElementById('profileCard').innerHTML
+  const win = window.open('', '', 'width=600,height=600')
+  win.document.write('<html><head><title>Print</title></head><body>'+profile+'</body></html>')
+  win.document.close()
+  win.print()
+}
+
+</script>
+
+</body>
+</html>

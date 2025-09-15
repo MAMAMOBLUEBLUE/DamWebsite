@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DAM - Login</title>
+  <style>
+    body{ font-family:Arial, Helvetica, sans-serif; background:linear-gradient(135deg,#fff5e6,#ff9933); margin:0; display:flex; align-items:center; justify-content:center; height:100vh }
+    .card{ background:#fff; padding:20px; border-radius:12px; box-shadow:0 6px 16px rgba(0,0,0,0.2); width:340px }
+    h2{ margin:0 0 12px }
+    select, input, button{ width:100%; padding:10px; margin:6px 0; border-radius:8px; border:1px solid #ccc }
+    button{ background:#ff6600; color:#fff; font-weight:700; cursor:pointer; border:none }
+    .hidden{ display:none }
+    #profileCard{ margin-top:20px; display:flex; gap:20px; align-items:flex-start; }
+    table{ width:100%; border-collapse:collapse; margin-top:8px }
+    th,td{ padding:6px; border:1px solid #ddd; font-size:14px; text-align:left }
+    th{ background:#ff6600; color:#fff }
+  </style>
+</head>
+<body>
+
+<div class="card" id="loginCard">
+  <h2>Login</h2>
+  <label>Role:
+    <select id="role">
+      <option value="admin">Admin</option>
+      <option value="student">Student</option>
+    </select>
+  </label>
+  <input id="userid" placeholder="User ID">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <div id="msg" style="color:red; font-size:14px; margin-top:6px"></div>
+</div>
+
+<!-- Student Dashboard -->
+<div class="card hidden" id="studentDashboard">
+  <h2>Student Dashboard</h2>
+  <div id="profileCard">
+    <div>
+      <canvas id="qrcodeCanvas"></canvas>
+    </div>
+    <div>
+      <p id="profileDetails"></p>
+      <h3>Books History</h3>
+      <table>
+        <thead><tr><th>Book</th><th>Action / Student</th><th>Date</th></tr></thead>
+        <tbody id="historyTable"><tr><td colspan="3">No history.</td></tr></tbody>
+      </table>
+      <div style="margin-top:12px; text-align:right;">
+        <button onclick="logout()">Logout</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script>
+function readStorage(k){ return JSON.parse(localStorage.getItem(k)||'[]') }
+
+function login(){
+  const role = document.getElementById('role').value
+  const user = document.getElementById('userid').value.trim()
+  const pass = document.getElementById('password').value.trim()
+  const msg = document.getElementById('msg')
+
+  if(role === 'admin'){
+    if(user==='admin' && pass==='1234'){
+      location.href = 'index.html'
+    } else {
+      msg.textContent = 'Invalid admin credentials.'
+    }
+  } else {
+    const students = readStorage('students')
+    const s = students.find(stu => stu.studentNumber===user && stu.password===pass)
+    if(!s){ msg.textContent='Invalid student login.'; return }
+    msg.textContent = ''
+    showStudentDashboard(s)
+  }
+}
+
+function showStudentDashboard(student){
+  document.getElementById('loginCard').classList.add('hidden')
+  document.getElementById('studentDashboard').classList.remove('hidden')
+
+  document.getElementById('profileDetails').innerHTML = `
+    <b>Student No:</b> ${student.studentNumber}<br>
+    <b>Name:</b> ${student.studentName}<br>
+    <b>Course:</b> ${student.course}<br>
+    <b>Department:</b> ${student.department}<br>
+    <b>Contact:</b> ${student.contact}
+  `
+  // QR
+  const payload = JSON.stringify({ studentNumber: student.studentNumber })
+  QRCode.toCanvas(document.getElementById('qrcodeCanvas'), payload, { width:160 })
+
+  renderHistory(student.studentNumber)
+}
+
+function renderHistory(studentNumber){
+  const tbody = document.getElementById('historyTable')
+  tbody.innerHTML = ''
+  const books = readStorage('books')
+  const txs = readStorage('transactions').filter(t => t.studentNumber===studentNumber).sort((a,b)=>new Date(b.date)-new Date(a.date))
+
+  if(txs.length===0){
+    tbody.innerHTML = '<tr><td colspan="3">No history.</td></tr>'
+    return
+  }
+  const students = readStorage('students')
+  const stu = students.find(s => s.studentNumber===studentNumber) || {studentName:'Unknown', studentNumber}
+  txs.forEach(tx=>{
+    const book = books.find(b => b.id===tx.bookId) || {title:'Unknown'}
+    let action = tx.type==='borrow' ? 'Borrowed' : tx.type==='return' ? 'Returned' : 'Lost'
+    const tr = document.createElement('tr')
+    tr.innerHTML = `<td>${book.title}</td><td>${action} by ${stu.studentName} (${stu.studentNumber})</td><td>${new Date(tx.date).toLocaleString()}</td>`
+    tbody.appendChild(tr)
+  })
+}
+function logout(){
+  location.href = 'login.html'
+}
+</script>
+</body>
+</html>

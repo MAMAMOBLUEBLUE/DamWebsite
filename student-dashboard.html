@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student Dashboard</title>
+  <style>
+    :root{ --orange:#ff6600; --bg1:#fff5e6; --bg2:#ff9933 }
+    body{ margin:0; font-family:Arial, Helvetica, sans-serif; background:linear-gradient(135deg,var(--bg1),var(--bg2)); padding:28px }
+    h1{ font-size:34px; margin:0 0 18px; font-weight:800 }
+    .welcome-card{ background:rgba(255,165,0,.6); padding:20px; border-radius:16px; max-width:900px; margin-bottom:18px }
+    .welcome-card h2{ margin:0 0 8px }
+    .content{ display:flex; gap:28px; align-items:flex-start; flex-wrap:wrap }
+    .qr-card{ background:rgba(50,50,50,.7); padding:18px; border-radius:16px; color:#fff; width:260px; text-align:center }
+    .qr-card h3{ background:#fff; color:#000; display:inline-block; padding:6px 12px; border-radius:20px; margin-bottom:12px }
+    .books-card{ flex:1; background:rgba(255,255,255,.85); padding:18px; border-radius:16px; min-width:320px }
+    table{ width:100%; border-collapse:collapse; margin-top:8px }
+    table th, table td{ padding:10px; border-bottom:1px solid #ddd; text-align:left }
+    table th{ background:var(--orange); color:#fff }
+    .qr-actions{ display:flex; gap:10px; margin-top:12px; justify-content:center }
+    .btn{ padding:10px 12px; border-radius:8px; border:none; font-weight:700; cursor:pointer }
+    .btn.orange{ background:var(--orange); color:#fff }
+  </style>
+</head>
+<body>
+  <h1>Student</h1>
+  <div class="welcome-card" id="studentInfo">
+    <h2>Welcome, [Student Name]</h2>
+    <p id="details">Student Number - [Student Number] <br> Course - [Course] <br> Department - [Department] <br> Contact - [Contact]</p>
+  </div>
+
+  <div class="content">
+    <div class="qr-card">
+      <h3>QR-CODE</h3>
+      <div id="qrcode"></div>
+      <div class="qr-actions">
+        <button class="btn orange" onclick="downloadQR()">Download</button>
+        <button class="btn" onclick="window.print()">Print</button>
+      </div>
+    </div>
+
+    <div class="books-card">
+      <h3>Borrowed Books List</h3>
+      <table id="borrowedTable">
+        <thead>
+          <tr><th>Title</th><th>Date Borrowed</th><th>Due Date</th><th>Status</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- QR generator -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    function readStorage(key){ return JSON.parse(localStorage.getItem(key) || '[]') }
+    function writeStorage(key,val){ localStorage.setItem(key, JSON.stringify(val)) }
+
+    // get student param or lastStudent fallback
+    const params = new URLSearchParams(location.search)
+    const studentParam = params.get('student') || localStorage.getItem('lastStudent')
+    const students = readStorage('students')
+    const books = readStorage('books')
+    const transactions = readStorage('transactions')
+
+    let currentStudent = students.find(s => s.studentNumber === studentParam) || (students[0] || null)
+    if(!currentStudent){
+      document.getElementById('studentInfo').innerHTML = '<h2>No student found</h2><p>Please register from index.html</p>'
+    } else {
+      document.getElementById('studentInfo').querySelector('h2').textContent = `Welcome, ${currentStudent.studentName}`
+      document.getElementById('details').innerHTML =
+        `Student Number - ${currentStudent.studentNumber}<br>Course - ${currentStudent.course}<br>Department - ${currentStudent.department}<br>Contact - ${currentStudent.contact}`
+
+      // generate QR with the studentNumber JSON, scanner will parse this object
+      const qrText = JSON.stringify({ studentNumber: currentStudent.studentNumber })
+      new QRCode(document.getElementById('qrcode'), { text: qrText, width:180, height:180 })
+
+      // list borrowed books (look for active borrow transactions for this student)
+      const tbody = document.querySelector('#borrowedTable tbody')
+      tbody.innerHTML = ''
+      const borrows = transactions.filter(t => t.studentNumber === currentStudent.studentNumber && t.type === 'borrow' && !t.returnedDate)
+      if(borrows.length === 0){
+        tbody.innerHTML = `<tr><td colspan="4">No borrowed books</td></tr>`
+      } else {
+        borrows.forEach(b => {
+          const book = books.find(x => x.id === b.bookId) || { title:'Unknown' }
+          const tr = document.createElement('tr')
+          tr.innerHTML = `<td>${book.title}</td><td>${new Date(b.date).toLocaleDateString()}</td><td>${b.dueDate ? new Date(b.dueDate).toLocaleDateString(): '-'}</td><td>Borrowed</td>`
+          tbody.appendChild(tr)
+        })
+      }
+    }
+
+    // download QR
+    function downloadQR(){
+      const canvas = document.querySelector('#qrcode canvas')
+      if(!canvas){ alert('No QR to download'); return }
+      const link = document.createElement('a'); link.download = `qr_${currentStudent.studentNumber}.png`; link.href = canvas.toDataURL(); link.click()
+    }
+  </script>
+</body>
+</html>
